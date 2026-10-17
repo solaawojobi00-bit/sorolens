@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/sorolens/sorolens/services/indexer/internal/ssrf"
 )
 
 // Notification channel types (alert_subscriptions.channel_type, issue #127).
@@ -236,8 +238,11 @@ func pagerDutyPayload(a Alert, routingKey string) map[string]any {
 	}
 }
 
-// httpClient is the notifier's HTTP client; tests may replace it.
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+// httpClient is the notifier's HTTP client; tests may replace it. It refuses
+// loopback, private, link-local and metadata destinations at dial time (so a
+// DNS answer that changes after the subscription was created cannot reach
+// internal services), limits redirects, and honours WEBHOOK_ALLOWED_HOSTS.
+var httpClient = ssrf.NewClient(10*time.Second, ssrf.AllowedHostsFromEnv())
 
 // DispatchAlerts queries matching subscriptions for a critical alert and
 // posts a channel-formatted notification to each one. It retries once on
