@@ -6,6 +6,7 @@ import { MonoId } from "@sorolens/ui";
 import { listAllEvents } from "@/lib/api";
 import { networkFilter, useNetwork } from "@/lib/network";
 import { TableSkeleton } from "@/components/Skeleton";
+import { ErrorState } from "@/components/ErrorState";
 import {
   FIRST_PAGE,
   currentCursor,
@@ -283,20 +284,11 @@ export default function EventsExplorerPage() {
       </form>
 
       {error ? (
-        <div
-          role="alert"
-          className="rounded-lg border border-red-900/60 bg-red-950/30 p-6 text-sm"
-        >
-          <p className="font-medium text-red-300">Couldn&apos;t load events.</p>
-          <p className="mt-1 text-[var(--color-text-secondary)]">{error}</p>
-          <button
-            type="button"
-            onClick={() => setReloadKey((k) => k + 1)}
-            className={`${buttonClass} mt-4`}
-          >
-            Try again
-          </button>
-        </div>
+        <ErrorState
+          title="Couldn't load events."
+          message={error}
+          onRetry={() => setReloadKey((k) => k + 1)}
+        />
       ) : loading && events.length === 0 ? (
         <TableSkeleton rows={8} />
       ) : events.length === 0 ? (

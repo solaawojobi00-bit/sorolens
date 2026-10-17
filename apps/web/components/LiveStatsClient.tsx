@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getGlobalStats, getWatchdogStats } from "@/lib/api";
 import type { GlobalStats, WatchdogStats } from "@/lib/types";
+import { ErrorState } from "@/components/ErrorState";
 
 interface Props {
   className?: string;
@@ -16,6 +17,16 @@ interface Combined {
 
 export function LiveStatsClient({ className, initialData }: Props) {
   const [data, setData] = useState<Combined>(initialData);
+  // True when the last refresh failed, so stale or missing figures are not
+  // mistaken for current ones. The reload counter re-runs the refresh.
+  const [refreshFailed, setRefreshFailed] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  const [reload, setReload] = useState(0);
+
+  const retry = useCallback(() => {
+    setRetrying(true);
+    setReload((n) => n + 1);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -25,6 +36,10 @@ export function LiveStatsClient({ className, initialData }: Props) {
         getWatchdogStats(),
       ]);
       if (cancelled) return;
+      setRefreshFailed(
+        global.status === "rejected" || watchdog.status === "rejected"
+      );
+      setRetrying(false);
       if (global.status === "rejected") {
         console.error("Unable to refresh global stats", global.reason);
       }
@@ -41,7 +56,7 @@ export function LiveStatsClient({ className, initialData }: Props) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reload]);
 
   const items: Array<{ label: string; value: string }> = [
     {
@@ -64,6 +79,16 @@ export function LiveStatsClient({ className, initialData }: Props) {
 
   return (
     <div className={className}>
+      {refreshFailed && (
+        <ErrorState
+          compact
+          className="mb-3"
+          title="Couldn't load live stats."
+          message="Figures marked — are unavailable, and any others may be out of date."
+          onRetry={retry}
+          retrying={retrying}
+        />
+      )}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {items.map((item) => (
           <div
