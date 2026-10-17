@@ -15,6 +15,7 @@ import { DataTable, Toast } from "@sorolens/ui";
 import type { Column } from "@sorolens/ui";
 import { LabelledId } from "@/components/LabelledId";
 import { useContracts } from "@/hooks/useContracts";
+import { ErrorState, errorMessage } from "@/components/ErrorState";
 import { ApiError, batchContracts } from "@/lib/api";
 import type { BatchContractsAction } from "@/lib/types";
 import { networkFilter, useNetwork } from "@/lib/network";
@@ -492,8 +493,9 @@ function ContractsPageInner() {
   // Every (cursor, network, tag) query is its own SWR cache entry: a visited
   // page renders instantly from cache and revalidates in the background, and
   // duplicate requests for the same query are de-duplicated. When the API is
-  // unreachable `data` stays undefined, which falls through to the empty state.
-  const { data, isLoading, mutate } = useContracts({
+  // unreachable `error` is set and an error state with a retry replaces the
+  // empty state, so an outage is never mistaken for "no contracts".
+  const { data, error, isLoading, isValidating, mutate } = useContracts({
     cursor: cursors[cursorIndex] ?? undefined,
     limit: PAGE_SIZE,
     network: networkFilter(network),
@@ -505,6 +507,7 @@ function ContractsPageInner() {
   const contracts: ContractRow[] = data?.contracts ?? [];
   const hasMore = data?.has_more ?? false;
   const loading = isLoading;
+  const loadFailed = !loading && Boolean(error);
 
   // Reset to the first page when the network or tag filter changes. The ref
   // guard keeps this from firing an extra fetch on mount; the filter also
@@ -861,8 +864,19 @@ function ContractsPageInner() {
         {/* Loading skeleton */}
         {loading && <TableSkeleton rows={PAGE_SIZE} />}
 
-        {/* Empty state: also shown when the API is unreachable */}
-        {!loading && sorted.length === 0 && (
+        {/* Failed request: keeps any previously loaded rows visible below */}
+        {loadFailed && (
+          <ErrorState
+            className="mb-4"
+            title="Couldn't load contracts."
+            message={errorMessage(error, "The contracts request failed.")}
+            onRetry={() => void mutate()}
+            retrying={isValidating}
+          />
+        )}
+
+        {/* Empty state: only when the request succeeded */}
+        {!loading && !loadFailed && sorted.length === 0 && (
           <div className="rounded-lg bg-[var(--color-bg-card)] px-8 py-16 text-center border border-[var(--color-border)]">
             <p className="text-lg font-medium text-[var(--color-text-primary)]">
               {search
