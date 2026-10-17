@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sorolens/sorolens/services/indexer/internal/ssrf"
 )
 
 // TestMain swaps in a plain client: the other tests deliver to httptest
@@ -26,7 +25,7 @@ func TestMain(m *testing.M) {
 // (including via a redirect from a reachable host) never gets a request.
 func TestDeliverRefusesInternalDestinations(t *testing.T) {
 	orig := httpClient
-	httpClient = ssrf.NewClient(2*time.Second, nil)
+	httpClient = newGuardedClient(2*time.Second, nil, nil, isBlockedAddr)
 	t.Cleanup(func() { httpClient = orig })
 
 	var hits atomic.Int32

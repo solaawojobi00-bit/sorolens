@@ -161,15 +161,16 @@ configuration when it is shown; if you miss the window, rotate to mint a new one
 - A `5xx` response is retried **once** with the same signed body and timestamp,
   so the retry verifies with the same signature.
 - `4xx` responses are not retried.
-- Destinations are restricted to public hosts (SSRF protection). A
-  `webhook_url` that is not http(s), carries credentials, or resolves to a
-  loopback, private, link-local, or cloud-metadata address is rejected with
-  `422` at creation. The address is checked again on every delivery, and the
-  connection goes to the address that was checked, so a hostname whose DNS
-  answer changes later cannot reach internal services.
+- Deliveries only go to public hosts (SSRF protection). On every delivery the
+  indexer resolves the host, refuses loopback, private, link-local and
+  cloud-metadata addresses (including IPv4 carried inside IPv6), and connects
+  to the address it checked, so a hostname whose DNS answer changes after the
+  subscription was created cannot reach internal services. A host with even one
+  forbidden address is refused, and the failure is logged.
 - At most 3 redirects are followed, and a redirect to a private address is
   refused like any other delivery to one.
 - Set `WEBHOOK_ALLOWED_HOSTS` (comma-separated, `*.example.com` wildcards) on
-  the API and indexer to accept only specific hosts.
+  the indexer to deliver only to specific hosts. Forbidden address ranges stay
+  blocked even for allowlisted hosts.
 - A subscription with no signing secret is never delivered to; unsigned payloads
   are never sent.

@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
@@ -13,7 +12,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/sorolens/sorolens/apps/api/internal/ssrf"
 	"github.com/sorolens/sorolens/apps/api/internal/store"
 )
 
@@ -144,27 +142,6 @@ func validateSubscription(req *createSubscriptionRequest) string {
 	return ""
 }
 
-// webhookLookup resolves webhook hosts; nil selects the system resolver.
-// Tests replace it so they do not depend on DNS.
-var webhookLookup ssrf.LookupFunc
-
-// validateWebhookDestination rejects URLs that target loopback, private,
-// link-local or metadata addresses, or hosts outside WEBHOOK_ALLOWED_HOSTS.
-func validateWebhookDestination(ctx context.Context, raw string) error {
-	return ssrf.ValidateURL(ctx, raw, ssrf.AllowedHostsFromEnv(), webhookLookup)
-}
-
-// webhookRejection words a validation error for the API response without
-// echoing resolver internals.
-func webhookRejection(err error) string {
-	switch {
-	case errors.Is(err, ssrf.ErrBlocked):
-		return "must not point at a private, loopback, link-local or metadata address, or a host outside the allowlist"
-	default:
-		return "is not reachable: the host must resolve to a public address"
-	}
-}
-
 func isHTTPSURL(raw string) bool {
 	u, err := url.Parse(raw)
 	return err == nil && u.Scheme == "https" && u.Host != ""
@@ -215,15 +192,6 @@ func (h *Handler) CreateSubscription(w http.ResponseWriter, r *http.Request) {
 	if msg := validateSubscription(&req); msg != "" {
 		writeError(w, r, http.StatusUnprocessableEntity, CodeInvalidInput, msg)
 		return
-	}
-	// Refuse destinations that would make the server call internal services.
-	// Delivery re-checks at dial time (services/indexer/internal/ssrf), which
-	// is what defeats DNS rebinding; this gives the caller early feedback.
-	if req.WebhookURL != "" {
-		if err := validateWebhookDestination(r.Context(), req.WebhookURL); err != nil {
-			writeError(w, r, http.StatusUnprocessableEntity, CodeInvalidInput, "webhook_url "+webhookRejection(err))
-			return
-		}
 	}
 	// Subscriptions reference monitored_contracts, so an unmonitored
 	// contract is a client error rather than a foreign-key failure.
