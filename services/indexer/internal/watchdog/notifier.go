@@ -244,6 +244,15 @@ func pagerDutyPayload(a Alert, routingKey string) map[string]any {
 // internal services), limits redirects, and honours WEBHOOK_ALLOWED_HOSTS.
 var httpClient = ssrf.NewClient(10*time.Second, ssrf.AllowedHostsFromEnv())
 
+// SetHTTPClient replaces the delivery client and returns a func that restores
+// the previous one. It exists for tests in other packages that deliver to
+// loopback servers, which the default client refuses.
+func SetHTTPClient(c *http.Client) (restore func()) {
+	prev := httpClient
+	httpClient = c
+	return func() { httpClient = prev }
+}
+
 // DispatchAlerts queries matching subscriptions for a critical alert and
 // posts a channel-formatted notification to each one. It retries once on
 // 5xx responses, logs and skips on 4xx. Each request has a 10-second
