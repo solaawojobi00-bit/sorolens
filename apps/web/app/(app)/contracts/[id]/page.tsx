@@ -38,6 +38,7 @@ import { InvocationChart } from "@/components/InvocationChart";
 import { ResourceTrendChart } from "@/components/ResourceTrendChart";
 import { getResourceTrend } from "@/lib/resourceTrend";
 import { EventsTable } from "@/components/EventsTable";
+import { ErrorState, errorMessage } from "@/components/ErrorState";
 import { StoragePanel } from "@/components/StoragePanel";
 import { ContractNotesPanel } from "@/components/ContractNotesPanel";
 import { SnapshotPanel } from "@/components/SnapshotPanel";
@@ -62,6 +63,20 @@ function ContractDetailContent({ id }: { id: string }) {
   const [contract, setContract] = useState<ContractDetail | null>(null);
   const [contractError, setContractError] = useState<string | null>(null);
   const [contractLoading, setContractLoading] = useState(true);
+  // Bumped by each retry button to re-run that section's load effect.
+  const [contractReload, setContractReload] = useState(0);
+  const [statsReload, setStatsReload] = useState(0);
+  const [seriesReload, setSeriesReload] = useState(0);
+  const [eventsReload, setEventsReload] = useState(0);
+  const [storageReload, setStorageReload] = useState(0);
+  // A failed section shows an error with a retry instead of looking empty.
+  const [statsError, setStatsError] = useState<string | null>(null);
+  const [seriesError, setSeriesError] = useState<string | null>(null);
+  const [eventsError, setEventsError] = useState<string | null>(null);
+  const [storageError, setStorageError] = useState<string | null>(null);
+  // Failed "load more" requests keep the rows already shown.
+  const [eventsMoreError, setEventsMoreError] = useState<string | null>(null);
+  const [storageMoreError, setStorageMoreError] = useState<string | null>(null);
 
   // User-defined tags are edited inline on this page.
   const [tags, setTags] = useState<string[]>([]);
@@ -113,10 +128,9 @@ function ContractDetailContent({ id }: { id: string }) {
           if (err instanceof ApiError && err.status === 404) {
             notFound();
           }
-          // Backend not reachable. Surface a friendly not-found panel
-          // rather than a red error, since the user cannot distinguish
-          // "we do not have this contract" from "the API is down."
-          setContractError("Contract not found");
+          // Anything but a 404 is an outage or server error, not a missing
+          // contract: say so and let the user retry.
+          setContractError(errorMessage(err, "The contract request failed."));
         }
       } finally {
         if (!cancelled) setContractLoading(false);
@@ -127,12 +141,13 @@ function ContractDetailContent({ id }: { id: string }) {
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, contractReload]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadStats() {
+      setStatsError(null);
       try {
         // The documented endpoint only aggregates 24h/7d/30d; "all" displays
         // totals, so the window counts are simply not shown for it.
@@ -141,8 +156,9 @@ function ContractDetailContent({ id }: { id: string }) {
           window === "all" ? "24h" : window
         );
         if (!cancelled) setStats(data);
-      } catch {
-        // stats are non-critical
+      } catch (err) {
+        if (!cancelled)
+          setStatsError(errorMessage(err, "The stats request failed."));
       }
     }
 
@@ -150,21 +166,23 @@ function ContractDetailContent({ id }: { id: string }) {
     return () => {
       cancelled = true;
     };
-  }, [id, window]);
+  }, [id, window, statsReload]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadSeries() {
       setSeriesLoading(true);
+      setSeriesError(null);
       try {
         const data = await getActivitySeries(id, window);
         if (!cancelled) {
           setEventSeries(data.events);
           setInvocationSeries(data.invocations);
         }
-      } catch {
-        // charts are non-critical
+      } catch (err) {
+        if (!cancelled)
+          setSeriesError(errorMessage(err, "The activity request failed."));
       } finally {
         if (!cancelled) setSeriesLoading(false);
       }
@@ -174,7 +192,7 @@ function ContractDetailContent({ id }: { id: string }) {
     return () => {
       cancelled = true;
     };
-  }, [id, window]);
+  }, [id, window, seriesReload]);
 
   useEffect(() => {
     let cancelled = false;
@@ -202,6 +220,8 @@ function ContractDetailContent({ id }: { id: string }) {
 
     async function loadEvents() {
       setEventsLoading(true);
+      setEventsError(null);
+      setEventsMoreError(null);
       try {
         const data = await getContractEvents(id, {
           limit: 50,
@@ -212,8 +232,9 @@ function ContractDetailContent({ id }: { id: string }) {
           setEventsCursor(data.next_cursor || null);
           setEventsHasMore(Boolean(data.next_cursor));
         }
-      } catch {
-        // non-critical
+      } catch (err) {
+        if (!cancelled)
+          setEventsError(errorMessage(err, "The events request failed."));
       } finally {
         if (!cancelled) setEventsLoading(false);
       }
@@ -223,13 +244,15 @@ function ContractDetailContent({ id }: { id: string }) {
     return () => {
       cancelled = true;
     };
-  }, [id, showFailedOnly]);
+  }, [id, showFailedOnly, eventsReload]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadStorage() {
       setStorageLoading(true);
+      setStorageError(null);
+      setStorageMoreError(null);
       try {
         const data = await getContractStorage(id, { limit: 100 });
         if (!cancelled) {
@@ -237,8 +260,9 @@ function ContractDetailContent({ id }: { id: string }) {
           setStorageCursor(data.next_cursor || null);
           setStorageHasMore(Boolean(data.next_cursor));
         }
-      } catch {
-        // non-critical
+      } catch (err) {
+        if (!cancelled)
+          setStorageError(errorMessage(err, "The storage request failed."));
       } finally {
         if (!cancelled) setStorageLoading(false);
       }
@@ -248,10 +272,11 @@ function ContractDetailContent({ id }: { id: string }) {
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, storageReload]);
 
   const handleLoadMoreEvents = useCallback(async () => {
     if (!eventsCursor) return;
+    setEventsMoreError(null);
     try {
       const data = await getContractEvents(id, {
         cursor: eventsCursor,
@@ -261,13 +286,14 @@ function ContractDetailContent({ id }: { id: string }) {
       setEvents((prev) => [...prev, ...data.events]);
       setEventsCursor(data.next_cursor || null);
       setEventsHasMore(Boolean(data.next_cursor));
-    } catch {
-      // non-critical
+    } catch (err) {
+      setEventsMoreError(errorMessage(err, "The next page failed to load."));
     }
   }, [id, eventsCursor, showFailedOnly]);
 
   const handleLoadMoreStorage = useCallback(async () => {
     if (!storageCursor) return;
+    setStorageMoreError(null);
     try {
       const data = await getContractStorage(id, {
         cursor: storageCursor,
@@ -276,8 +302,8 @@ function ContractDetailContent({ id }: { id: string }) {
       setStorage((prev) => [...prev, ...data.storage]);
       setStorageCursor(data.next_cursor || null);
       setStorageHasMore(Boolean(data.next_cursor));
-    } catch {
-      // non-critical
+    } catch (err) {
+      setStorageMoreError(errorMessage(err, "The next page failed to load."));
     }
   }, [id, storageCursor]);
 
@@ -346,12 +372,18 @@ function ContractDetailContent({ id }: { id: string }) {
 
   if (contractError) {
     return (
-      <div className="mx-auto max-w-xl rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-card)] px-8 py-16 text-center">
-        <p className="text-lg font-medium text-[var(--color-text-primary)]">
-          {contractError}
-        </p>
-        <p className="mt-2 text-sm text-[var(--color-text-secondary)]">
-          Check the contract ID and try again, or return to the{" "}
+      <div className="mx-auto max-w-xl">
+        <ErrorState
+          title="Couldn't load this contract."
+          message={contractError}
+          onRetry={() => {
+            setContractLoading(true);
+            setContractError(null);
+            setContractReload((n) => n + 1);
+          }}
+        />
+        <p className="mt-4 text-center text-sm text-[var(--color-text-secondary)]">
+          Or return to the{" "}
           <Link
             href="/contracts"
             className="text-[var(--color-accent)] underline underline-offset-2 hover:opacity-80"
@@ -418,6 +450,15 @@ function ContractDetailContent({ id }: { id: string }) {
         </div>
       </header>
 
+      {statsError && (
+        <ErrorState
+          compact
+          className="mb-4"
+          title="Couldn't load contract stats."
+          message={statsError}
+          onRetry={() => setStatsReload((n) => n + 1)}
+        />
+      )}
       <section className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           label="Events"
@@ -459,6 +500,12 @@ function ContractDetailContent({ id }: { id: string }) {
             <ChartSkeleton />
             <ChartSkeleton />
           </div>
+        ) : seriesError ? (
+          <ErrorState
+            title="Couldn't load activity charts."
+            message={seriesError}
+            onRetry={() => setSeriesReload((n) => n + 1)}
+          />
         ) : (
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <div className="rounded-lg bg-[var(--color-bg-card)] p-4">
@@ -504,12 +551,29 @@ function ContractDetailContent({ id }: { id: string }) {
         </div>
         {eventsLoading ? (
           <TableSkeleton />
-        ) : (
-          <EventsTable
-            events={events}
-            onLoadMore={handleLoadMoreEvents}
-            hasMore={eventsHasMore}
+        ) : eventsError ? (
+          <ErrorState
+            title="Couldn't load events."
+            message={eventsError}
+            onRetry={() => setEventsReload((n) => n + 1)}
           />
+        ) : (
+          <>
+            <EventsTable
+              events={events}
+              onLoadMore={handleLoadMoreEvents}
+              hasMore={eventsHasMore}
+            />
+            {eventsMoreError && (
+              <ErrorState
+                compact
+                className="mt-4"
+                title="Couldn't load more events."
+                message={eventsMoreError}
+                onRetry={handleLoadMoreEvents}
+              />
+            )}
+          </>
         )}
       </section>
 
@@ -527,13 +591,30 @@ function ContractDetailContent({ id }: { id: string }) {
         <h2 className="mb-4 text-xl font-semibold">Storage TTL</h2>
         {storageLoading ? (
           <TableSkeleton />
-        ) : (
-          <StoragePanel
-            entries={storage}
-            currentLedger={stats?.last_synced_ledger ?? 0}
-            onLoadMore={handleLoadMoreStorage}
-            hasMore={storageHasMore}
+        ) : storageError ? (
+          <ErrorState
+            title="Couldn't load storage entries."
+            message={storageError}
+            onRetry={() => setStorageReload((n) => n + 1)}
           />
+        ) : (
+          <>
+            <StoragePanel
+              entries={storage}
+              currentLedger={stats?.last_synced_ledger ?? 0}
+              onLoadMore={handleLoadMoreStorage}
+              hasMore={storageHasMore}
+            />
+            {storageMoreError && (
+              <ErrorState
+                compact
+                className="mt-4"
+                title="Couldn't load more storage entries."
+                message={storageMoreError}
+                onRetry={handleLoadMoreStorage}
+              />
+            )}
+          </>
         )}
       </section>
 

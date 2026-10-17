@@ -2,6 +2,7 @@ import type {
   AlertGroupsResponse,
   AlertsResponse,
   AlertSubscription,
+  ChannelType,
   BatchContractsRequest,
   BatchContractsResponse,
   ContractDetail,
@@ -728,6 +729,39 @@ export async function deleteSubscription(
       typeof body.error === "string" ? body.error : body.error?.message;
     throw new ApiError(res.status, message || res.statusText);
   }
+}
+
+export async function sendTestNotification(params: {
+  contractId: string;
+  channel: ChannelType;
+  destination: string;
+  severity?: string;
+}): Promise<{ success: boolean; message?: string }> {
+  const res = await fetch("/api/watchdog/test-notification", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contract_id: params.contractId,
+      channel_type: params.channel,
+      destination: params.destination,
+      severity: params.severity || "Critical",
+    }),
+  });
+  let body: { success?: boolean; message?: string; error?: string } = {};
+  try {
+    body = await res.json();
+  } catch {
+    // ignore parse error
+  }
+  if (!res.ok || body.success === false) {
+    throw new Error(
+      body.error || `Failed to send test notification (${res.status})`
+    );
+  }
+  return {
+    success: true,
+    message: body.message || "Test notification sent successfully.",
+  };
 }
 
 // ---- watchlist ------------------------------------------------------------

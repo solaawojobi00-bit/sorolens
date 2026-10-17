@@ -5,12 +5,14 @@ import Link from "next/link";
 import { listWatchlist, addToWatchlist, removeFromWatchlist } from "@/lib/api";
 import type { WatchlistItem } from "@/lib/types";
 import { StarButton } from "@/components/StarButton";
+import { ErrorState, errorMessage } from "@/components/ErrorState";
 import { useSessionUserId } from "@/lib/useSession";
 
 export default function WatchlistPage() {
   const userId = useSessionUserId();
   const [items, setItems] = useState<WatchlistItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!userId) {
@@ -18,11 +20,13 @@ export default function WatchlistPage() {
       return;
     }
     setLoading(true);
+    setError(null);
     try {
       const data = await listWatchlist(userId);
       setItems(data.items ?? []);
-    } catch {
+    } catch (err) {
       setItems([]);
+      setError(errorMessage(err, "The watchlist request failed."));
     } finally {
       setLoading(false);
     }
@@ -64,7 +68,15 @@ export default function WatchlistPage() {
         </div>
       )}
 
-      {!loading && items.length === 0 && (
+      {!loading && error && (
+        <ErrorState
+          title="Couldn't load your watchlist."
+          message={error}
+          onRetry={load}
+        />
+      )}
+
+      {!loading && !error && items.length === 0 && (
         <div className="rounded-lg bg-[var(--color-bg-card)] px-8 py-16 text-center border border-[var(--color-border)]">
           <p className="text-lg font-medium text-[var(--color-text-primary)]">
             No bookmarks yet
@@ -75,7 +87,7 @@ export default function WatchlistPage() {
         </div>
       )}
 
-      {!loading && items.length > 0 && (
+      {!loading && !error && items.length > 0 && (
         <div className="overflow-x-auto rounded-lg border border-[var(--color-border)]">
           <table className="min-w-full text-left text-sm">
             <thead className="bg-[var(--color-bg-card)] text-[var(--color-text-secondary)]">
